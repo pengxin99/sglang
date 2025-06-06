@@ -61,6 +61,10 @@ from sgl_kernel.speculative import (
     tree_speculative_sampling_target_only,
     verify_tree_greedy,
 )
+from sgl_kernel.esimd_ops import (
+    esimd_add
+)
+
 from sgl_kernel.version import __version__
 
 build_tree_kernel = (

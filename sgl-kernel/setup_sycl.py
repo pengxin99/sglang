@@ -37,12 +37,13 @@ include_dirs = [
 
 sources = [
     "csrc/xpu/awq_dequantize.sycl",
+    "csrc/xpu/uni_esimd_kernel.sycl",
     "csrc/xpu/torch_extension_sycl.cc",
 ]
 
 extra_compile_args = {
     "cxx": ["-O3", "-std=c++17"],
-    "sycl": ["-fsycl", "-ffast-math", "-fsycl-device-code-split=per_kernel"],
+    "sycl": ["-fsycl", "-ffast-math", "-fsycl-device-code-split=per_kernel", "-fsycl-targets=spir64_gen"],
 }
 
 extra_link_args = ["-Wl,-rpath,$ORIGIN/../../torch/lib", "-L/usr/lib/x86_64-linux-gnu"]
@@ -65,5 +66,5 @@ setup(
     package_dir={"": "python"},
     ext_modules=ext_modules,
     cmdclass={"build_ext": BuildExtension.with_options(use_ninja=True)},
-    options={"bdist_wheel": {"py_limited_api": "cp39"}},
+    options={"bdist_wheel": {"py_limited_api": "cp10"}},
 )
