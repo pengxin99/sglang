@@ -10,6 +10,7 @@ if os.path.exists("/usr/local/cuda/targets/x86_64-linux/lib/libcudart.so.12"):
     )
 
 from sgl_kernel import common_ops
+from sgl_kernel import common_ops_lgrf
 from sgl_kernel.allreduce import *
 from sgl_kernel.attention import (
     cutlass_mla_decode,
@@ -62,7 +63,8 @@ from sgl_kernel.speculative import (
     verify_tree_greedy,
 )
 from sgl_kernel.esimd_ops import (
-    esimd_add
+    esimd_add,
+    esimd_mul_lgrf
 )
 
 from sgl_kernel.version import __version__

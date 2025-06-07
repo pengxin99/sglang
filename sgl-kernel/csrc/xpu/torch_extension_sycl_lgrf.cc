@@ -22,10 +22,8 @@ TORCH_LIBRARY_FRAGMENT(sgl_kernel, m) {
   /*
    * From csrc/gemm
    */
-  m.def("awq_dequantize(Tensor qweight, Tensor scales, Tensor qzeros) -> Tensor");
-  m.impl("awq_dequantize", torch::kXPU, &awq_dequantize);
-  m.def("esimd_add(Tensor a, Tensor b, Tensor c, int flag, int len) -> Tensor");
-  m.impl("esimd_add", torch::kXPU, &esimd_kernel_uni);
+  m.def("esimd_mul_lgrf(Tensor a, Tensor b, Tensor c, int flag, int len) -> Tensor");
+  m.impl("esimd_mul_lgrf", torch::kXPU, &esimd_kernel_mul_lgrf);
 
   //   m.def(
   //       "fp8_blockwise_scaled_mm(Tensor mat_a, Tensor mat_b, Tensor scales_a, Tensor scales_b, ScalarType out_dtype,
@@ -33,4 +31,4 @@ TORCH_LIBRARY_FRAGMENT(sgl_kernel, m) {
   //   m.impl("fp8_blockwise_scaled_mm", torch::kXPU, &fp8_blockwise_scaled_mm);
 }
 
-REGISTER_EXTENSION(common_ops)
+REGISTER_EXTENSION(common_ops_lgrf)

@@ -10,7 +10,7 @@
 #include <vector>
 
 #include "SYCLHelpers.h"
-//#include "esimd_add.h"
+//#include "esimd_mul.h"
 
 #include <sycl/sycl.hpp>
 #include <sycl/ext/intel/esimd.hpp>
@@ -20,7 +20,7 @@ using namespace sycl::ext::intel::esimd::xmx;
 using fp16 = sycl::half;
 using namespace sycl;
 
-ESIMD_INLINE void esimd_add_impl(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, nd_item<1>& ndi) {
+ESIMD_INLINE void esimd_mul_impl(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, nd_item<1>& ndi) {
 
   __ESIMD_NS::slm_init(16 * sizeof(fp16)); 
 
@@ -49,7 +49,7 @@ ESIMD_INLINE void esimd_add_impl(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len
               __ESIMD_ENS::cache_hint::cached,
               __ESIMD_ENS::cache_hint::cached>((uint8_t*)b + inputOffset);
 
-      c_fp16 = a_fp16 + b_fp16;
+      c_fp16 = a_fp16 * b_fp16;
 
     // if (local_idx < 16)
     {
@@ -64,7 +64,7 @@ ESIMD_INLINE void esimd_add_impl(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len
     
 }
 
-void esimd_add(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, sycl::queue& q){
+void esimd_mul(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, sycl::queue& q){
     sycl::range<1> LocalRange(16); 
     sycl::range<1> GlobalRange(len / 128);
 
@@ -75,7 +75,7 @@ void esimd_add(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, sycl::queue& q){
       {
         e = q.submit([&](handler& cgh) {
         cgh.parallel_for(Range, [=](nd_item<1> ndi) SYCL_ESIMD_KERNEL{
-              esimd_add_impl(a, b, c, len, ndi);
+              esimd_mul_impl(a, b, c, len, ndi);
             });
          });
       }
@@ -85,7 +85,7 @@ void esimd_add(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, sycl::queue& q){
     }
 }
 
-at::Tensor esimd_kernel_uni(
+at::Tensor esimd_kernel_mul_lgrf(
     at::Tensor _p0,
     at::Tensor _p1,
     at::Tensor _p2,
@@ -130,7 +130,7 @@ at::Tensor esimd_kernel_uni(
 
       switch(i0){
         case 1000:   // rms norm
-          esimd_add(p0, p1, p2, i1, dpcpp_queue);
+          esimd_mul(p0, p1, p2, i1, dpcpp_queue);
           break;
         default:
           printf("---------- esimd uni-lgrf kernel op not supported, op is %lld ----------\n", i0);

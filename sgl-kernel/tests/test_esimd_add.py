@@ -3,7 +3,7 @@ from typing import Optional, Tuple
 
 import pytest
 import torch
-from sgl_kernel import esimd_add
+from sgl_kernel import esimd_add, esimd_mul_lgrf
 
 if torch.cuda.is_available():
     device = torch.device("cuda")
@@ -20,6 +20,12 @@ def test_esimd_add(a, b, c, flag, len):
     breakpoint()
     return c
 
+def test_esimd_mul_lgrf(a, b, c, flag, len):
+
+    esimd_mul_lgrf(a, b, c, flag, len)
+    print(c)
+    breakpoint()
+    return c
 
 if __name__ == "__main__":
     len = 40960 
@@ -31,6 +37,14 @@ if __name__ == "__main__":
     test_esimd_add(a, b, c, flag, len)
 
     ref_res = a + b
+    # Compare results
+    torch.testing.assert_close(
+        c.to(torch.float32), ref_res.to(torch.float32), rtol=1e-3, atol=1e-5
+    )
+
+    test_esimd_mul_lgrf(a, b, c, flag, len)
+
+    ref_res = a * b
     # Compare results
     torch.testing.assert_close(
         c.to(torch.float32), ref_res.to(torch.float32), rtol=1e-3, atol=1e-5
