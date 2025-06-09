@@ -24,8 +24,8 @@ TORCH_LIBRARY_FRAGMENT(sgl_kernel, m) {
    */
   m.def("awq_dequantize(Tensor qweight, Tensor scales, Tensor qzeros) -> Tensor");
   m.impl("awq_dequantize", torch::kXPU, &awq_dequantize);
-  m.def("esimd_add(Tensor a, Tensor b, Tensor c, int flag, int len) -> Tensor");
-  m.impl("esimd_add", torch::kXPU, &esimd_kernel_uni);
+  m.def("esimd_add(Tensor a, Tensor b, Tensor c, int len) -> Tensor");
+  m.impl("esimd_add", torch::kXPU, &esimd_add);
 
   //   m.def(
   //       "fp8_blockwise_scaled_mm(Tensor mat_a, Tensor mat_b, Tensor scales_a, Tensor scales_b, ScalarType out_dtype,

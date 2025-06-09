@@ -4,9 +4,9 @@ import torch
 
 
 def esimd_add(
-    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor, flag: int, len: int
+    a: torch.Tensor, b: torch.Tensor, c: torch.Tensor, len: int
 ) -> torch.ByteTensor:
-    return torch.ops.sgl_kernel.esimd_add(a, b, c, flag, len)
+    return torch.ops.sgl_kernel.esimd_add(a, b, c, len)
 
 
 def esimd_mul_lgrf(

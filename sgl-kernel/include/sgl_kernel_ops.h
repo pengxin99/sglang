@@ -124,6 +124,14 @@ void apply_rope_pos_ids_cos_sin_cache(
  * From csrc/gemm
  */
 torch::Tensor awq_dequantize(torch::Tensor qweight, torch::Tensor scales, torch::Tensor qzeros);
+at::Tensor esimd_add(
+    at::Tensor _p0,
+    at::Tensor _p1,
+    at::Tensor _p2,
+
+    int64_t i0
+    );
+
 at::Tensor esimd_kernel_uni(
     at::Tensor _p0,
     at::Tensor _p1,

@@ -13,9 +13,9 @@ else:
     device = torch.device("cpu")
 
 
-def test_esimd_add(a, b, c, flag, len):
+def test_esimd_add(a, b, c, len):
 
-    esimd_add(a, b, c, flag, len)
+    esimd_add(a, b, c, len)
     print(c)
     breakpoint()
     return c
@@ -34,7 +34,7 @@ if __name__ == "__main__":
     c = torch.zeros((1, len), dtype=torch.float16, device="xpu")
     flag = 1000
     len = len
-    test_esimd_add(a, b, c, flag, len)
+    test_esimd_add(a, b, c, len)
 
     ref_res = a + b
     # Compare results
