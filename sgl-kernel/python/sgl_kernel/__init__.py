@@ -64,6 +64,7 @@ from sgl_kernel.speculative import (
 )
 from sgl_kernel.esimd_ops import (
     esimd_add,
+    esimd_kernel_uni,
     esimd_mul_lgrf
 )
 

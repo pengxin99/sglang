@@ -11,7 +11,7 @@
 
 #include "SYCLHelpers.h"
 #include "esimd_kernels/esimd_add.h"
-
+#include "esimd_kernels/fp8_GEMV.h"
 
 void esimd_add(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, sycl::queue& q){
     sycl::range<1> LocalRange(16); 
@@ -53,56 +53,182 @@ at::Tensor esimd_add(
       return _p2;
     }
 
+#define GEMV_A16_WFP8_BLK_PARAMS     \
+  input_data,                        \
+  weight_data,                       \
+  weight_scale_data,                 \
+  bias_data,                         \
+  output_data,                       \
+  M,                                 \
+  N,                                 \
+  K,                                 \
+  batch,                             \
+  has_bias,                          \
+  q                                  \
+
+void GEMV_a16_wfp8_block_host(
+  uint8_t* input_data,
+  uint8_t* weight_data, 
+  uint8_t* weight_scale_data,
+  uint8_t* bias_data,
+  uint8_t* output_data,
+  uint32_t M,
+  uint32_t N,
+  uint32_t K,
+  uint32_t batch,
+  uint32_t scale_block_size_N,
+  uint32_t scale_block_size_K,
+  uint32_t has_bias,
+  sycl::queue& q) {
+
+    // printf("NT is 8 PPG is 8\n");
+
+    // o_proj TP4 4096 to 7168  <fp16, 8, 512, 4, fp16, 128, 128>
+    // fused_qkv_a_proj_with_mqa 7168 to 2112 <fp16, 7, 512, 1, fp16, 128, 128>
+    // q_b_proj 1536 to 32*192  <fp16, 3, 512, 2, fp16, 128, 128>
+    // dense gate_up_proj 7168 to 18432*2/4=9126  <fp16, 8, 512, 4, fp16, 128, 128>
+    // dense down_proj 18432/4=4608 to 7168  <fp16, 9, 512, 4, fp16, 128, 128>
+
+    // template<typename IT, uint32_t NT, uint32_t HD, uint32_t PPG, typename ITS, uint32_t scale_block_size_N, uint32_t scale_block_size_K>
+
+    if (scale_block_size_N == scale_block_size_K && scale_block_size_N == 128)
+    {
+      if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+      {
+        GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else if (K == 4096 && N == 7168) // o_proj TP4
+      {
+        GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else if (K == 1536) // q_b_proj
+      {
+        GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else if (K == 7168 && N >= 7168) // dense gate_up_proj
+      {
+        GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else if (K == 4608 && N == 7168) // dense down_proj TP4
+      {
+        GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else
+      {
+        GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+    }
+    else
+    {
+      std::cout << "[GEMV_a16_wfp8_block] Not supported M N K batch scaleNxK " 
+        << M << " " <<  N << " " << K << " " << batch << " " << scale_block_size_K << "x" << scale_block_size_N << " " << std::endl;
+    }
+
+  }
+
+void wfp8_dequant_host(
+  uint8_t* weight_data, 
+  uint8_t* weight_scale_data,
+  uint8_t* output_data,
+  uint32_t N,
+  uint32_t K,
+  uint32_t scale_block_size_N,
+  uint32_t scale_block_size_K,
+  sycl::queue& q) {
+    uint8_t* input_data = weight_data;
+    uint8_t* bias_data = weight_data;
+    uint32_t M = 1;
+    uint32_t batch = 1;
+    uint32_t has_bias = 0;
+    // template<typename IT, uint32_t NT, uint32_t HD, uint32_t PPG, typename ITS, uint32_t scale_block_size_N, uint32_t scale_block_size_K>
+    if (scale_block_size_N == scale_block_size_K && scale_block_size_N == 128)
+    {
+      if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+      {
+        GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else if (K == 4096 && N == 7168) // o_proj TP4
+      {
+        GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else if (K == 1536) // q_b_proj
+      {
+        GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else if (K == 7168 && N >= 7168) // dense gate_up_proj
+      {
+        GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else if (K == 4608 && N == 7168) // dense down_proj TP4
+      {
+        GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+      else
+      {
+        GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+      }
+    }
+    else
+    {
+      std::cout << "[wfp8_dequant] Not supported N K scaleNxK " 
+        <<  N << " " << K << " " << scale_block_size_K << "x" << scale_block_size_N << " " << std::endl;
+    }
+
+  }
+
 at::Tensor esimd_kernel_uni(
     at::Tensor _p0,
     at::Tensor _p1,
     at::Tensor _p2,
-    //at::Tensor _p3,
-    //at::Tensor _p4,
-    //at::Tensor _p5,
-    //at::Tensor _p6,
-    //at::Tensor _p7,
-    //at::Tensor _p8,
-    //at::Tensor _p9,
+    at::Tensor _p3,
+    at::Tensor _p4,
+    at::Tensor _p5,
+    at::Tensor _p6,
+    at::Tensor _p7,
+    at::Tensor _p8,
+    at::Tensor _p9,
 
     int64_t i0,
-    int64_t i1
-    //int64_t i2,
-    //int64_t i3,
-    //int64_t i4,
-    //int64_t i5,
-    //int64_t i6,
-    //int64_t i7,
-    //int64_t i8,
-    //int64_t i9,
+    int64_t i1,
+    int64_t i2,
+    int64_t i3,
+    int64_t i4,
+    int64_t i5,
+    int64_t i6,
+    int64_t i7,
+    int64_t i8,
+    int64_t i9,
 
-    //float f0,
-    //float f1,
-    //float f2,
-    //float f3,
-    //float f4
+    double f0,
+    double f1,
+    double f2,
+    double f3,
+    double f4
     )
     {
-    auto p0 = reinterpret_cast<uint8_t*>(_p0.data_ptr<at::Half>());
-    auto p1 = reinterpret_cast<uint8_t*>(_p1.data_ptr<at::Half>());
-    auto p2 = reinterpret_cast<uint8_t*>(_p2.data_ptr<at::Half>());
-    //auto p3 = reinterpret_cast<uint8_t*>(_p3.data_ptr<uint8_t>());
-    //auto p4 = reinterpret_cast<uint8_t*>(_p4.data_ptr<uint8_t>());
-    //auto p5 = reinterpret_cast<uint8_t*>(_p5.data_ptr<uint8_t>());
-    //auto p6 = reinterpret_cast<uint8_t*>(_p6.data_ptr<uint8_t>());
-    //auto p7 = reinterpret_cast<uint8_t*>(_p7.data_ptr<uint8_t>());
-    //auto p8 = reinterpret_cast<uint8_t*>(_p8.data_ptr<uint8_t>());
-    //auto p9 = reinterpret_cast<uint8_t*>(_p9.data_ptr<uint8_t>());
+    auto p0 = reinterpret_cast<uint8_t*>(_p0.data_ptr());
+    auto p1 = reinterpret_cast<uint8_t*>(_p1.data_ptr());
+    auto p2 = reinterpret_cast<uint8_t*>(_p2.data_ptr());
+    auto p3 = reinterpret_cast<uint8_t*>(_p3.data_ptr());
+    auto p4 = reinterpret_cast<uint8_t*>(_p4.data_ptr());
+    auto p5 = reinterpret_cast<uint8_t*>(_p5.data_ptr());
+    auto p6 = reinterpret_cast<uint8_t*>(_p6.data_ptr());
+    auto p7 = reinterpret_cast<uint8_t*>(_p7.data_ptr());
+    auto p8 = reinterpret_cast<uint8_t*>(_p8.data_ptr());
+    auto p9 = reinterpret_cast<uint8_t*>(_p9.data_ptr());
     auto stream = at::xpu::getCurrentXPUStream();
     auto dpcpp_queue = stream.queue();
 
       switch(i0){
-        case 1000:   // rms norm
-          esimd_add(p0, p1, p2, i1, dpcpp_queue);
-          break;
+        case 5000:
+          GEMV_a16_wfp8_block_host(p0, p1, p2, p3, p4, i1, i2, i3, i4, i5, i6, i7, dpcpp_queue);
+        break;
+        case 4999:
+          wfp8_dequant_host(p0, p1, p2, i1, i2, i3, i4, dpcpp_queue);
+        break;
         default:
-          printf("---------- esimd uni-lgrf kernel op not supported, op is %lld ----------\n", i0);
-          break;
+          printf("---------- esimd kernel op not supported, op is %lld ----------\n", i0);
+        break;
       }
-      return _p2;
+      return _p9;
     }
