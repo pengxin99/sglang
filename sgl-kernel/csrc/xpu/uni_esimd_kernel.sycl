@@ -52,7 +52,6 @@ at::Tensor esimd_add(
 
       return _p2;
     }
-
 #define GEMV_A16_WFP8_BLK_PARAMS     \
   input_data,                        \
   weight_data,                       \
@@ -93,29 +92,82 @@ void GEMV_a16_wfp8_block_host(
 
     if (scale_block_size_N == scale_block_size_K && scale_block_size_N == 128)
     {
-      if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+      if (M == 1)
       {
-        GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+        if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+        {
+          GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (K == 4096 && N == 7168) // o_proj TP4
+        {
+          GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (K == 1536) // q_b_proj
+        {
+          GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (K == 7168 && N >= 7168) // dense gate_up_proj
+        {
+          GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (K == 4608 && N == 7168) // dense down_proj TP4
+        {
+          GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else
+        {
+          GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
       }
-      else if (K == 4096 && N == 7168) // o_proj TP4
+      else if (M == 2)
       {
-        GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+        if (N <= 1024) // gate
+        {
+          GEMV_a16_wfp8_block<fp16, 14, 256, 1, fp16, 128, 128, false, 2>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (N <= 2112) // fused_qkv_a_proj_with_mqa
+        {
+          GEMV_a16_wfp8_block<fp16, 2, 256, 4, fp16, 128, 128, false, 2>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else
+        {
+          GEMV_a16_wfp8_block<fp16, 2, 256, 8, fp16, 128, 128, false, 2>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
       }
-      else if (K == 1536) // q_b_proj
+      else if (M <= 4)
       {
-        GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+        if (N <= 1024) // gate
+        {
+          GEMV_a16_wfp8_block<fp16, 14, 256, 1, fp16, 128, 128, false, 4>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+        {
+          GEMV_a16_wfp8_block<fp16, 2, 256, 4, fp16, 128, 128, false, 4>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else
+        {
+          GEMV_a16_wfp8_block<fp16, 2, 256, 8, fp16, 128, 128, false, 4>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
       }
-      else if (K == 7168 && N >= 7168) // dense gate_up_proj
+      else if (M <= 8)
       {
-        GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
-      }
-      else if (K == 4608 && N == 7168) // dense down_proj TP4
-      {
-        GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+        if (N <= 1024) // gate
+        {
+          GEMV_a16_wfp8_block<fp16, 14, 256, 1, fp16, 128, 128, false, 8>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+        {
+          GEMV_a16_wfp8_block<fp16, 2, 256, 4, fp16, 128, 128, false, 8>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else
+        {
+          GEMV_a16_wfp8_block<fp16, 2, 256, 8, fp16, 128, 128, false, 8>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
       }
       else
       {
-        GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, false>(GEMV_A16_WFP8_BLK_PARAMS);
+        std::cout << "[GEMV_a16_wfp8_block] Not supported M N K batch scaleNxK " 
+        << M << " " <<  N << " " << K << " " << batch << " " << scale_block_size_K << "x" << scale_block_size_N << " " << std::endl;
       }
     }
     else
@@ -145,27 +197,27 @@ void wfp8_dequant_host(
     {
       if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
       {
-        GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+        GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
       }
       else if (K == 4096 && N == 7168) // o_proj TP4
       {
-        GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+        GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
       }
       else if (K == 1536) // q_b_proj
       {
-        GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+        GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
       }
       else if (K == 7168 && N >= 7168) // dense gate_up_proj
       {
-        GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+        GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
       }
       else if (K == 4608 && N == 7168) // dense down_proj TP4
       {
-        GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+        GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
       }
       else
       {
-        GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, true>(GEMV_A16_WFP8_BLK_PARAMS);
+        GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
       }
     }
     else
@@ -175,6 +227,7 @@ void wfp8_dequant_host(
     }
 
   }
+
 
 at::Tensor esimd_kernel_uni(
     at::Tensor _p0,

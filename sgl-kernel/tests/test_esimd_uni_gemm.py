@@ -9,7 +9,7 @@ from sgl_kernel import esimd_kernel_uni
 
 g_test_dequant = False
 g_test_perf = True
-g_test_M_size = 1
+g_test_M_size = 1024
 
 def is_k_contiguous(tt):
     return tt.shape[-1] == tt.stride()[-2]
@@ -37,7 +37,7 @@ def fp8_gemm_opt(input: torch.Tensor, weight: torch.Tensor, weight_scale: torch.
         has_bias = 1
         bias_in = bias
 
-    if (M != 1):  # GEMM not GEMV
+    if (M > 8):  # GEMM not GEMV
         if g_test_perf:
             weight_list = []
             for i in range(32):
@@ -330,8 +330,7 @@ class TestGemm(unittest.TestCase):
         # atol = rtol = precision[ref.dtype]
         atol = 0.5
         rtol = 0.01
-        print(ref)
-        print(opt)
+        print(ref, opt)
         self.assertTrue(torch.allclose(ref, opt, atol=atol, rtol=rtol))
 
     def test_fp8_gemm(self):

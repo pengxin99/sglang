@@ -19,7 +19,7 @@
 
 //A (M, K),  W (N, K)
 template<typename IT, uint32_t NT, uint32_t HD, uint32_t PPG, typename ITS, 
-uint32_t scale_block_size_N, uint32_t scale_block_size_K, bool DEQUANT_TEST>
+uint32_t scale_block_size_N, uint32_t scale_block_size_K, bool DEQUANT_TEST, uint32_t MAX_INPUT_M>
 void GEMV_a16_wfp8_block(
   uint8_t* input_data,
   uint8_t* weight_data, 
@@ -32,14 +32,15 @@ void GEMV_a16_wfp8_block(
   uint32_t batch,
   uint32_t has_bias,
   sycl::queue& q) {
-    // Limitation:   K % 128 == 0   M == 1
+    // Limitation:   K % 128 == 0   M <= MAX_INPUT_M    K % scale_block_size_K == 0 or K
     // NT <= 64    IT is fp16    ITS is fp16   K % HD == 0    HD <= 1024    PPG <= 1024     all hyper params must be 2^
+    // batch here is for batch GEMV in absorb. indicated as head.
     assert(K % HD == 0);
     assert(K % 128 == 0);
     static_assert(HD <= MAX_HD);
     static_assert(PPG <= MAX_PPG);
     static_assert(NT <= MAX_T);
-    assert(M == 1);
+    assert(M <= MAX_INPUT_M);
     static_assert(sizeof(IT) == sizeof(fp16));
     static_assert(sizeof(ITS) == sizeof(fp16));
 
@@ -49,6 +50,8 @@ void GEMV_a16_wfp8_block(
     uint32_t scale_stride = (K + scale_block_size_K - 1) / scale_block_size_K;
     uint32_t scale_stride_n = (N + scale_block_size_N - 1) / scale_block_size_N;
     uint32_t active_thread_num_last_chunk = NT;
+    constexpr uint32_t reduce_result_n_per_t = (MAX_INPUT_M + NT - 1) / NT; // per thread reduce num
+    constexpr uint32_t reduce_result_t_n = MAX_INPUT_M / reduce_result_n_per_t; // thread num used for reduce
     if (K % CHUNK != 0)
     {
       active_thread_num_last_chunk = (K % CHUNK + HD - 1) / HD;
@@ -66,8 +69,8 @@ void GEMV_a16_wfp8_block(
       cgh.parallel_for(Range, [=](nd_item<2> ndi) SYCL_ESIMD_KERNEL{
 
       // SLM layout  IT
-      // (ppg, NT)
-      __ESIMD_NS::slm_init(PPG * NT * sizeof(IT));
+      // (M, NT, ppg)
+      __ESIMD_NS::slm_init(MAX_INPUT_M * PPG * NT * sizeof(IT));
 
       int hh = ndi.get_local_id(0);
       int h = ndi.get_group(0);
@@ -78,15 +81,25 @@ void GEMV_a16_wfp8_block(
       const ITS *  weight_scale_ptr = ((ITS*)weight_scale_data) + hh * HD / scale_block_size_K + b * scale_stride_n * scale_stride;
       const uint32_t slmAccumulationOffset = hh * PPG * sizeof(IT);
 
-      simd<IT, PPG> slmAccumulationTemp;  // slmAccumulationTemp shape (PPG)
+      simd<IT, PPG*MAX_INPUT_M> slmAccumulationTemp;  // slmAccumulationTemp shape (PPG)
+      simd<IT, HD*MAX_INPUT_M> input;
 
       slmAccumulationTemp = 0;
       // Loop CHUNK
       for (int ck = 0; ck < chunk_n; ck++) {
         if (ck < chunk_n - 1 || hh < active_thread_num_last_chunk)  // only "not last chunk" or "lask chunk active threads" need execution
         {
-          // load input    (HD)
-          simd<IT, HD> input = block_load<IT, HD>(input_ptr + CHUNK * ck);
+          if (MAX_INPUT_M == 1)
+          {
+            input.template select<HD, 1>(0) = block_load<IT, HD>(input_ptr + CHUNK * ck);
+          }
+          else
+          {
+            // load input    (HD)
+            for (int ii = 0; ii < M; ii++) {
+              input.template select<HD, 1>(HD * ii) = block_load<IT, HD>(input_ptr + CHUNK * ck + ii * K);
+            }
+          }
 
           // Loop PPG
           #pragma unroll
@@ -180,7 +193,16 @@ void GEMV_a16_wfp8_block(
                 }
                 else
                 {
-                  slmAccumulationTemp[pp] += sycl::ext::intel::esimd::detail::sum<IT, IT, HD>(weight * input);
+                  if (MAX_INPUT_M == 1)
+                  {
+                    slmAccumulationTemp[pp] += sycl::ext::intel::esimd::detail::sum<IT, IT, HD>(weight * input.template select<HD, 1>(0));
+                  }
+                  else
+                  {
+                    for (int ii = 0; ii < M; ii++) {
+                      slmAccumulationTemp[pp + ii * PPG] += sycl::ext::intel::esimd::detail::sum<IT, IT, HD>(weight * input.template select<HD, 1>(HD * ii));
+                    }
+                  }
                 }
             } // only "not last wg" or "last wg but ppg in range" need execution
           } // Loop PPG
@@ -190,41 +212,54 @@ void GEMV_a16_wfp8_block(
       if (!DEQUANT_TEST)
       {
         // write to SLM
-        // Loop PPG
-        slm_block_store<IT, PPG>(slmAccumulationOffset, slmAccumulationTemp);
+        if (MAX_INPUT_M == 1)
+        {
+          slm_block_store<IT, PPG>(slmAccumulationOffset, slmAccumulationTemp.template select<PPG, 1>(0));
+        }
+        else
+        {
+          for (int ii = 0; ii < M; ii++) {
+            slm_block_store<IT, PPG>(slmAccumulationOffset + ii * PPG * NT * sizeof(IT), slmAccumulationTemp.template select<PPG, 1>(PPG * ii));
+          }
+        }
 
         barrier();
 
-        // reduce (PPG, NT) results to (PPG, 1)
-        if (hh == 0)
+        // reduce (M, NT, PPG) results to(M, 1, PPG)
+        if (hh < reduce_result_t_n)
         {
-          simd<IT, PPG> final_result;  // shape (PPG)
-          simd<IT, PPG> bias; // shape (PPG)
-
-          final_result = 0;
-
-          // shape (NT * PPG)
-          simd<IT, NT * PPG> result_to_reduce = slm_block_load<IT, NT * PPG>(0);
           #pragma unroll
-          for (int pp = 0; pp < PPG; pp++) {
-            final_result[pp] = sycl::ext::intel::esimd::detail::sum<IT, IT, NT>(result_to_reduce.template select<NT, PPG>(pp));
-          }
-          
-          // load bias  (PPG)
-          if (has_bias)
-          {
-            bias.template select<PPG, 1>(0) = block_load<IT, PPG>(((IT*)bias_data) + hh * PPG);
-            // writeOut  (PPG)
-            block_store<IT, PPG>(((IT*)output_data) + h * PPG + b * M * N, final_result + bias);
-          }
-          else
-          {
-            // writeOut  (PPG)
-            block_store<IT, PPG>(((IT*)output_data) + h * PPG + b * M * N, final_result);
-          }
+          for (int i = 0; i < reduce_result_n_per_t; i++) {
+            uint32_t ii = hh * reduce_result_n_per_t + i;
+            if (ii < M)
+            {
+              simd<IT, PPG> final_result;  // shape (PPG)
+              simd<IT, PPG> bias; // shape (PPG)
 
+              final_result = 0;
 
-        }
+              // shape (NT * PPG)
+              simd<IT, NT * PPG> result_to_reduce = slm_block_load<IT, NT * PPG>(ii * PPG * NT * sizeof(IT));
+              #pragma unroll
+              for (int pp = 0; pp < PPG; pp++) {
+                final_result[pp] = sycl::ext::intel::esimd::detail::sum<IT, IT, NT>(result_to_reduce.template select<NT, PPG>(pp));
+              }
+              
+              // load bias  (PPG)
+              if (has_bias)
+              {
+                bias.template select<PPG, 1>(0) = block_load<IT, PPG>(((IT*)bias_data) + h * PPG + b * N);
+                // writeOut  (PPG)
+                block_store<IT, PPG>(((IT*)output_data) + h * PPG + b * M * N + ii * N, final_result + bias);
+              }
+              else
+              {
+                // writeOut  (PPG)
+                block_store<IT, PPG>(((IT*)output_data) + h * PPG + b * M * N + ii * N, final_result);
+              }
+            } // ii < M
+          } // loop reduce_result_n_per_t
+        } // check reduce_result_t_n
       } // !DEQUANT_TEST
 
     });
