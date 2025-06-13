@@ -94,29 +94,36 @@ void GEMV_a16_wfp8_block_host(
     {
       if (M == 1)
       {
-        if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+        if (K % 512 == 0)
         {
-          GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+          {
+            GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          }
+          else if (K == 4096 && N == 7168) // o_proj TP4
+          {
+            GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          }
+          else if (K == 1536) // q_b_proj
+          {
+            GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          }
+          else if (K == 7168 && N >= 7168) // dense gate_up_proj
+          {
+            GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          }
+          else if (K == 4608 && N == 7168) // dense down_proj TP4
+          {
+            GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          }
+          else
+          {
+            GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          }
         }
-        else if (K == 4096 && N == 7168) // o_proj TP4
+        else // K % 256 == 0
         {
-          GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-        }
-        else if (K == 1536) // q_b_proj
-        {
-          GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-        }
-        else if (K == 7168 && N >= 7168) // dense gate_up_proj
-        {
-          GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-        }
-        else if (K == 4608 && N == 7168) // dense down_proj TP4
-        {
-          GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-        }
-        else
-        {
-          GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          GEMV_a16_wfp8_block<fp16, 8, 256, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
         }
       }
       else if (M == 2)
@@ -195,29 +202,36 @@ void wfp8_dequant_host(
     // template<typename IT, uint32_t NT, uint32_t HD, uint32_t PPG, typename ITS, uint32_t scale_block_size_N, uint32_t scale_block_size_K>
     if (scale_block_size_N == scale_block_size_K && scale_block_size_N == 128)
     {
-      if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+      if (K % 512 == 0)
       {
-        GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-      }
-      else if (K == 4096 && N == 7168) // o_proj TP4
+        if (K == 7168 && N <= 2112) // fused_qkv_a_proj_with_mqa and gate
+        {
+          GEMV_a16_wfp8_block<fp16, 7, 512, 1, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (K == 4096 && N == 7168) // o_proj TP4
+        {
+          GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (K == 1536) // q_b_proj
+        {
+          GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (K == 7168 && N >= 7168) // dense gate_up_proj
+        {
+          GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else if (K == 4608 && N == 7168) // dense down_proj TP4
+        {
+          GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+        else
+        {
+          GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        }
+      } 
+      else // K % 256 == 0
       {
-        GEMV_a16_wfp8_block<fp16, 8, 512, 4, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-      }
-      else if (K == 1536) // q_b_proj
-      {
-        GEMV_a16_wfp8_block<fp16, 3, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-      }
-      else if (K == 7168 && N >= 7168) // dense gate_up_proj
-      {
-        GEMV_a16_wfp8_block<fp16, 14, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-      }
-      else if (K == 4608 && N == 7168) // dense down_proj TP4
-      {
-        GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
-      }
-      else
-      {
-        GEMV_a16_wfp8_block<fp16, 8, 512, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+        GEMV_a16_wfp8_block<fp16, 8, 256, 2, fp16, 128, 128, true, 1>(GEMV_A16_WFP8_BLK_PARAMS);
       }
     }
     else
