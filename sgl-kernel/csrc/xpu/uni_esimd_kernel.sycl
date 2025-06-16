@@ -12,6 +12,7 @@
 #include "SYCLHelpers.h"
 #include "esimd_kernels/esimd_add.h"
 #include "esimd_kernels/fp8_GEMV.h"
+#include "esimd_kernels/sdpa_norm.h"
 
 void esimd_add(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, sycl::queue& q){
     sycl::range<1> LocalRange(16); 
@@ -115,6 +116,10 @@ void GEMV_a16_wfp8_block_host(
           else if (K == 4608 && N == 7168) // dense down_proj TP4
           {
             GEMV_a16_wfp8_block<fp16, 9, 512, 4, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
+          }
+          else if (K == 2048) // v2 lite
+          {
+            GEMV_a16_wfp8_block<fp16, 4, 512, 2, fp16, 128, 128, false, 1>(GEMV_A16_WFP8_BLK_PARAMS);
           }
           else
           {
@@ -243,6 +248,35 @@ void wfp8_dequant_host(
   }
 
 
+void esimd_sdpa_normal_with_reduce(
+    uint8_t* query,
+    uint8_t* key,
+    uint8_t* value,
+    uint8_t* kv_indptr, 
+    uint8_t* kv_indices,
+    uint8_t* sdp_tmp,
+    uint8_t* attn_mask,
+    uint8_t* output,
+    int64_t num_heads,
+    int64_t num_heads_kv,
+    int64_t batch_idx,
+    int64_t qk_dim,
+    int64_t v_dim,
+    float alpha,
+    float beta,
+    sycl::queue& dpcpp_queue) {
+  if (num_heads % num_heads_kv != 0)
+  {
+    printf("sdpa num_heads & num_heads_kv != 0 !!\n");
+  }
+  if (!(qk_dim == 576 && v_dim == 512 ))
+  {
+    printf("sdpa not support hidden_dim %lld, %lld !!\n", qk_dim, v_dim);
+  }
+  sdp_esimd_kernel_with_reduce_fp16I_fp16O<576, 512, 256>(num_heads, num_heads_kv, batch_idx, query, key, value, (uint32_t*) kv_indptr, (uint32_t*)kv_indices, sdp_tmp, attn_mask, output, alpha, beta, dpcpp_queue);
+
+}
+
 at::Tensor esimd_kernel_uni(
     at::Tensor _p0,
     at::Tensor _p1,
@@ -292,6 +326,9 @@ at::Tensor esimd_kernel_uni(
         break;
         case 4999:
           wfp8_dequant_host(p0, p1, p2, i1, i2, i3, i4, dpcpp_queue);
+        break;
+        case 1013: 
+          esimd_sdpa_normal_with_reduce(p0, p1, p2, p3, p4, p5, p6,p6, i1, i2, i3, i4, i5, f0, f1, dpcpp_queue);
         break;
         default:
           printf("---------- esimd kernel op not supported, op is %lld ----------\n", i0);
