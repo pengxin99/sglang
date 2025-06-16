@@ -512,7 +512,7 @@ class TestTritonAttention(unittest.TestCase):
                 query, k_cache, v_cache, kv_indptr, kv_indices, sdp_tmp, output, output, output, output,
                 1013, query.shape[-2], k_cache.shape[-2], batch_idx,  k_cache.shape[-1], v_cache.shape[-1], 
                 0, 0, 0, 0,    
-                1.0, 1.0, 1.0, 1.0, 1.0)
+                sm_scale, 1.0, 1.0, 1.0, 1.0)
 
         return output
         

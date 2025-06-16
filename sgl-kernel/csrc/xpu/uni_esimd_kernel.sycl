@@ -262,7 +262,7 @@ void esimd_sdpa_normal_with_reduce(
     int64_t batch_idx,
     int64_t qk_dim,
     int64_t v_dim,
-    float alpha,
+    float attn_scale,
     float beta,
     sycl::queue& dpcpp_queue) {
   if (num_heads % num_heads_kv != 0)
@@ -273,7 +273,7 @@ void esimd_sdpa_normal_with_reduce(
   {
     printf("sdpa not support hidden_dim %lld, %lld !!\n", qk_dim, v_dim);
   }
-  sdp_esimd_kernel_with_reduce_fp16I_fp16O<576, 512, 256>(num_heads, num_heads_kv, batch_idx, query, key, value, (uint32_t*) kv_indptr, (uint32_t*)kv_indices, sdp_tmp, attn_mask, output, alpha, beta, dpcpp_queue);
+  sdp_esimd_kernel_with_reduce_fp16I_fp16O<576, 512, 256>(num_heads, num_heads_kv, batch_idx, query, key, value, (uint32_t*) kv_indptr, (uint32_t*)kv_indices, sdp_tmp, attn_mask, output, attn_scale, beta, dpcpp_queue);
 
 }
 
@@ -328,7 +328,7 @@ at::Tensor esimd_kernel_uni(
           wfp8_dequant_host(p0, p1, p2, i1, i2, i3, i4, dpcpp_queue);
         break;
         case 1013: 
-          esimd_sdpa_normal_with_reduce(p0, p1, p2, p3, p4, p5, p6,p6, i1, i2, i3, i4, i5, f0, f1, dpcpp_queue);
+          esimd_sdpa_normal_with_reduce(p0, p1, p2, p3, p4, p5, p6, p7, i1, i2, i3, i4, i5, f0, f1, dpcpp_queue);
         break;
         default:
           printf("---------- esimd kernel op not supported, op is %lld ----------\n", i0);
