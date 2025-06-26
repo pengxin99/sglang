@@ -17,7 +17,7 @@ inline void sdp_esimd_kernel_with_reduce_fp16I_fp16O(
     void* sdp_tmp,
     void* attn_mask,
     uint8_t* output,
-    float attn_scale,
+    float alpha,
     float beta,
     sycl::queue& dpcpp_queue) {
 
@@ -50,7 +50,7 @@ inline void sdp_esimd_kernel_with_reduce_fp16I_fp16O(
     const size_t seq_len = 1; //q token num
 
     const size_t group_num = num_heads / num_kv_heads;
-    // const float attn_scale = 1 / std::sqrt((float)qk_HD);
+    const float attn_scale = 1 / std::sqrt((float)qk_HD);
 
     sycl::range<3> global_size(bsz, seq_len, groups_for_kv_len * GS);
     sycl::range<3> local_size(1, 1, GS);

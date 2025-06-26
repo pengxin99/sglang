@@ -14,6 +14,19 @@
 #include "esimd_kernels/fp8_GEMV.h"
 #include "esimd_kernels/sdpa_norm.h"
 
+#include "esimd_kernels\gemmReduce2048WeightsQ40InputFp32.h"
+#include "esimd_kernels\matrixMulCommonDim4096Int4NoReshapeNx16V3.h"
+#include "esimd_kernels\matrixMulCommonDim14336Int4NoReshapeNx16V2NoSLM.h"
+#include "esimd_kernels\GEMV_Int4Weight_FP16InOutNx16Temp_largeGRF_block.h"
+#include "esimd_kernels\MOE_GEMV_Int4Weight_FP16InOutNx16Temp_largeGRF_block.h"
+#include "esimd_kernels\gemmMinference.h"
+#include "esimd_kernels\grouped_mask.h"
+#include "esimd_kernels\rmsNorm.h"
+#include "esimd_kernels\rotary_pos_emb.h"
+#include "esimd_kernels\sdpa_normal.h"
+#include "esimd_kernels\MOE_new.h"
+#include "esimd_kernels\MOE_new_128g.h"
+
 void esimd_add(uint8_t* a, uint8_t* b, uint8_t* c, int64_t len, sycl::queue& q){
     sycl::range<1> LocalRange(16); 
     sycl::range<1> GlobalRange(len / 128);
@@ -321,6 +334,99 @@ at::Tensor esimd_kernel_uni(
     auto dpcpp_queue = stream.queue();
 
       switch(i0){
+        // case 1001:   // lora gemv fuse
+        //   esimd_kernel_lora_fuse_gemv(p0, p1, p2, p3, p4, p5, p6, i1, i2, i3, i4, f0, dpcpp_queue);
+        // break;
+        // case 1002:   // int8 cal gemm
+        //   esimd_kernel_int8_cal_gemm(p0, p1, p2, p3, i1, i2, i3, dpcpp_queue);
+        // break;
+        // case 1003:   // kq gemm dense out
+        //   printf("---------- esimd kernel op not supported, op is %lld ----------\n", i0);
+        // break;
+        // case 1004:   // kqv gemm dense in
+        //   esimd_kernel_gemm_fp16_kqv(p0, p1, p2, p3, i1, i2, i3, dpcpp_queue);
+        // break;
+        case 1005:   // sdp
+          esimd_kernel_sdp_minfer(p0, p1, p2, p3, p4, p5, p6, p7, p8, i1, i2, i3, i4, i5, i6, dpcpp_queue);
+        break;
+        case 1006:
+          esimd_group_mask_for_minfer_Ashape(p0, p1, i1, i2, i3, i4, i5, i6, f0, dpcpp_queue);
+        break;
+        case 1007:
+          esimd_group_mask_for_minfer_Ashape_no_ori_mask(p0, i1, i2, i3, i4, i5, i6, i7, i8, f0, dpcpp_queue);
+        break;
+		    case 1008:   // rms norm
+          esimd_kernel_rms_norm(p0, p1, p2, i1, i2, f0, dpcpp_queue);
+        break;
+        case 1108:   // rms norm w/ residual add
+          esimd_residual_kernel_rms_norm(p0, p1, p2, p3, i1, i2, i3, f0, dpcpp_queue);
+        break;
+        case 2008:   // rms norm
+          esimd_kq_kernel_rms_norm(p0, p1, p2, p3, p4, p5, i1, i2, i3, f0, f1, dpcpp_queue);
+        break;
+        case 1009:  // rotary_pos_emb_chatglm
+          esimd_rotary_pos_emb(p0, p1, p2, i1, i2, i3, i4, dpcpp_queue);
+        break;
+        case 1010:  // rotary_pos_emb_llama
+          esimd_rotary_pos_emb_llama(p0, p1, p2, p3, i1, i2, i3, i4, i5, dpcpp_queue);
+        break;
+        case 1011:  // rotary_pos_emb_llama
+          esimd_sdpa_normal(p0, p1, p2, p3, p4, p5, i1, i2, i3, i4, f0, f1, dpcpp_queue);
+        break;
+        case 1012:
+          esimd_group_mask_for_minfer_Bshape(p0, i1, i2, i3, p1, p2, i4, i5, dpcpp_queue);
+        break;
+        case 2000:
+          gemm_int4_esimd_kernel(p0, p1, p2, p3, p4, i1, i2, i3, i4, dpcpp_queue);
+        break;
+        case 2050:
+          gemm_int4_qkv_fused_esimd_kernel(p0, p1, p2, p3, p4, p5, p6, i1, i2, i3, i4, i5, i6, dpcpp_queue);
+        break;
+        case 2100:
+          moe_softmax_topk_norm_kernel(p0, p1, p2, p3, dpcpp_queue);
+        break;
+        case 2200:
+          moe_sum_expertweights_kernel(p0, p1, p2, p3, i1, i2, dpcpp_queue);
+        break;
+        case 2500:
+          moe_gemm_int4_up_esimd_kernel(p0, p1, p2, p3, p4, i1, i2, i3, i4, dpcpp_queue);
+        break;
+        case 2600:
+          moe_gemm_int4_down_esimd_kernel(p0, p1, p2, p3, p4, i1, i2, i3, i4, dpcpp_queue);
+        break;
+        case 2700:
+        {
+          if (i4 == 32)
+          {
+            moe_forward_up_kernel_32g<fp16, 2, 4, 32>((const void* )p0,(const int64_t* )p1,(const uint64_t* )p2,(const uint64_t* )p3,(const uint64_t* )p4,(const uint64_t* )p5,(void*)p6,i1,i2,i3,dpcpp_queue);
+          }
+          else if (i4 == 128)
+          {
+            moe_forward_up_kernel_128g<fp16, 2, 4, 32>((const void* )p0,(const int64_t* )p1,(const uint64_t* )p2,(const uint64_t* )p3,(const uint64_t* )p4,(const uint64_t* )p5,(void*)p6,i1,i2,i3,dpcpp_queue);
+          }
+        break;
+        }
+        case 2800:
+        {
+          if (i4 == 32)
+          {
+            moe_forward_down_kernel_32g<fp16, 4, 4, 32>((const void* )p0,(const int64_t* )p1,(const uint64_t* )p2,(const uint64_t* )p3,(const uint64_t* )p4,(void*)p5, i1,i2,i3,dpcpp_queue);
+          }
+          else if (i4 == 128)
+          {
+            moe_forward_down_kernel_128g<fp16, 4, 4, 32>((const void* )p0,(const int64_t* )p1,(const uint64_t* )p2,(const uint64_t* )p3,(const uint64_t* )p4,(void*)p5, i1,i2,i3,dpcpp_queue);
+          }
+        }
+        break;
+        case 1500:
+          kvcache_update_esimd_kernel(p0, p1, p2, p3, i1, i2, dpcpp_queue);
+        break;
+        case 1300:
+          rotary_embedding_esimd_kernel(p0, p1, p2, p3, f0, dpcpp_queue);
+        break;
+        default:
+          printf("---------- esimd kernel op not supported, op is %lld ----------\n", i0);
+        break;
         case 5000:
           GEMV_a16_wfp8_block_host(p0, p1, p2, p3, p4, i1, i2, i3, i4, i5, i6, i7, dpcpp_queue);
         break;

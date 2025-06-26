@@ -45,7 +45,7 @@ sources = [
 
 extra_compile_args = {
     "cxx": ["-O3", "-std=c++17"],
-    "sycl": ["-fsycl", "-ffast-math", "-fsycl-device-code-split=per_kernel", "-fsycl-targets=spir64_gen"],
+    "sycl": ["-ffast-math", "-fsycl-device-code-split=per_kernel"],
 }
 
 extra_link_args = ["-Wl,-rpath,$ORIGIN/../../torch/lib", "-L/usr/lib/x86_64-linux-gnu"]
